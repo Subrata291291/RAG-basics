@@ -17,6 +17,12 @@ from src.knowledge_search import (
     search_knowledge
 )
 
+from src.recommendation_engine import (
+    detect_recommendation_intent,
+    get_recommendation,
+    recommendation_context
+)
+
 from src.query_router import (
     classify_query
 )
@@ -29,7 +35,11 @@ from src.answer_generator import (
     generate_product_answer,
     generate_knowledge_answer,
     generate_followup_answer,
-    generate_normal_answer
+    generate_normal_answer,
+    stream_product_answer,
+    stream_knowledge_answer,
+    stream_followup_answer,
+    stream_normal_answer
 )
 
 from src.answer_validator import (
@@ -150,31 +160,17 @@ class JewelleryChatbot:
 
             product = result["product"]
 
-            material_type = product.get(
-                "material_type"
-            )
-
-            material_line = ""
-
-            if material_type:
-
-                material_line = (
-                    f"Material Type: "
-                    f"{material_type}\n"
-                )
-
-
             lines.append(
                 f"""
 Product {rank}:
-ID: {product.get('id', '')}
-Name: {product.get('name', '')}
-Category: {product.get('category', '')}
-Metal: {product.get('metal', '')}
-{material_line}Karat: {product.get('karat', '')}
-Price: ₹{product.get('price', '')}
-Description: {product.get('description', '')}
-Semantic Score: {result.get('score', 0):.3f}
+ID: {product['id']}
+Name: {product['name']}
+Category: {product['category']}
+Metal: {product['metal']}
+Karat: {product['karat']}
+Price: ₹{product['price']}
+Description: {product['description']}
+Semantic Score: {result['score']:.3f}
 """
             )
 
@@ -202,76 +198,302 @@ Semantic Score: {result.get('score', 0):.3f}
             lines.append(
                 f"""
 Document {rank}:
-File: {document.get('document', '')}
-Score: {result.get('score', 0):.3f}
+File: {document['document']}
+Score: {result['score']:.3f}
 
 Content:
-{document.get('content', '')}
+{document['content']}
 """
             )
 
         return "\n".join(lines)
 
 
+
     # ========================================================
-    # PRINT QUERY FILTERS
+    # RECOMMENDATION CONTEXT
     # ========================================================
 
-    def print_query_filters(
+    def add_recommendation_context(
         self,
-        filters
+        query,
+        results,
+        context
     ):
+        """
+        Detect and apply a deterministic recommendation on top
+        of the already filtered/retrieved product results.
+
+        The recommendation engine decides the product.
+        The LLM only explains the supplied result.
+        """
+
+        intent = detect_recommendation_intent(query)
+
+        if not intent or not results:
+            return context
 
         print()
+        print("===== RECOMMENDATION =====")
+        print(f"Recommendation type: {intent}")
 
-        print(
-            "===== QUERY UNDERSTANDING ====="
+        recommendation = get_recommendation(
+            results,
+            intent
         )
 
-        print(
-            f"Original query: "
-            f"{filters.get('original_query')}"
-        )
+        if not recommendation:
+            print("No recommendation found.")
+            return context
+
+        product = recommendation["product"]
 
         print(
-            f"Corrected query: "
-            f"{filters.get('corrected_query')}"
+            f"Recommended: {product['name']} | "
+            f"₹{product['price']:,}"
         )
 
-        print(
-            f"Category: "
-            f"{filters.get('category')}"
+        try:
+            recommendation_info = recommendation_context(
+                results,
+                intent
+            )
+        except Exception as e:
+            print(
+                f"RECOMMENDATION CONTEXT ERROR: {e}"
+            )
+            return context
+
+        if recommendation_info:
+            context += "\\n\\n" + recommendation_info
+
+        return context
+
+
+    # ========================================================
+    # STREAM ANSWER
+    # ========================================================
+
+    def ask_stream(self, query):
+        """
+        Stream the final LLM answer while preserving RAG safety.
+
+        Search, filtering and query understanding happen first.
+        The complete streamed answer is accumulated so it can be
+        validated and stored in conversation memory.
+
+        Yields text chunks to the caller. The caller can print each
+        chunk immediately or send it to a web streaming response.
+        """
+
+        query = query.strip()
+
+        if not query:
+            yield "Please enter a question."
+            return
+
+        query_type = classify_query(
+            query,
+            has_previous_products=bool(
+                self.conversation.last_products
+            )
         )
 
-        print(
-            f"Metal: "
-            f"{filters.get('metal')}"
-        )
+        print()
+        print(f"Query type: {query_type}")
 
-        print(
-            f"Material type: "
-            f"{filters.get('material_type')}"
-        )
+        # --------------------------------------------------------
+        # NORMAL CONVERSATION
+        # --------------------------------------------------------
+        if query_type == "normal":
+            history = self.conversation.history_text()
+            chunks = stream_normal_answer(query, history)
+            parts = []
 
-        print(
-            f"Karat: "
-            f"{filters.get('karat')}"
-        )
+            try:
+                for chunk in chunks:
+                    parts.append(chunk)
+                    yield chunk
+            except Exception as e:
+                print(f"\nNORMAL STREAM ERROR: {e}")
+                if not parts:
+                    yield "I'm sorry, I'm having trouble responding right now. Please try again."
+                return
 
-        print(
-            f"Min price: "
-            f"{filters.get('min_price')}"
-        )
+            answer = "".join(parts).strip()
+            if answer:
+                self.conversation.add_message(query, answer)
+            return
 
-        print(
-            f"Max price: "
-            f"{filters.get('max_price')}"
-        )
+        # --------------------------------------------------------
+        # FOLLOW-UP
+        # --------------------------------------------------------
+        if query_type == "followup":
+            context = self.conversation.product_context()
+            history = self.conversation.history_text()
 
-        print(
-            f"Sort: "
-            f"{filters.get('sort_by')} "
-            f"{filters.get('sort_order')}"
+            if not context:
+                yield "I don't have a previous product selection to refer to. Please tell me which jewellery you're interested in."
+                return
+
+            context = self.add_recommendation_context(
+                query,
+                self.conversation.last_products,
+                context
+            )
+
+            chunks = stream_followup_answer(
+                query,
+                context,
+                history
+            )
+            validation_context = context
+
+        # --------------------------------------------------------
+        # PRODUCT
+        # --------------------------------------------------------
+        elif query_type == "product":
+            try:
+                filters = understand_query(query)
+                results = filtered_semantic_search(
+                    query,
+                    self.products,
+                    self.product_embeddings,
+                    filters,
+                    TOP_K_PRODUCTS
+                )
+            except Exception as e:
+                print(f"\nPRODUCT SEARCH ERROR: {e}")
+                yield "I'm sorry, I couldn't search the product catalog right now."
+                return
+
+            if not results:
+                yield "I couldn't find any products matching your requirements in the current catalog."
+                return
+
+            for rank, result in enumerate(results, start=1):
+                product = result["product"]
+                print(
+                    f"{rank}. {product['name']} | "
+                    f"₹{product['price']:,} | "
+                    f"Score={result['score']:.3f}"
+                )
+
+            context = self.product_context(results)
+
+            context = self.add_recommendation_context(
+                query,
+                results,
+                context
+            )
+
+            validation_context = context
+            self.conversation.set_products(results)
+            chunks = stream_product_answer(
+                query,
+                context
+            )
+
+        # --------------------------------------------------------
+        # KNOWLEDGE
+        # --------------------------------------------------------
+        elif query_type == "knowledge":
+            if not self.knowledge:
+                yield "The store knowledge documents are currently unavailable."
+                return
+
+            try:
+                results = search_knowledge(
+                    query,
+                    self.knowledge,
+                    self.knowledge_embeddings,
+                    TOP_K_KNOWLEDGE
+                )
+            except Exception as e:
+                print(f"\nKNOWLEDGE SEARCH ERROR: {e}")
+                yield "I'm sorry, I couldn't search the store information right now."
+                return
+
+            if not results:
+                yield "I couldn't find relevant information in the store knowledge documents."
+                return
+
+            for rank, result in enumerate(results, start=1):
+                document = result["document"]
+                print(
+                    f"{rank}. {document['document']} | "
+                    f"Score={result['score']:.3f}"
+                )
+
+            context = self.knowledge_context(results)
+            validation_context = context
+            chunks = stream_knowledge_answer(query, context)
+
+        else:
+            yield "I'm not sure how to handle that request. Please ask about our jewellery, products, or store policies."
+            return
+
+        # --------------------------------------------------------
+        # STREAM + ACCUMULATE
+        # --------------------------------------------------------
+        parts = []
+
+        try:
+            for chunk in chunks:
+                if chunk:
+                    parts.append(chunk)
+                    yield chunk
+        except Exception as e:
+            print(f"\nLLM STREAM ERROR: {e}")
+
+            # Do not expose a second answer after partial output.
+            # The caller has already received part of the response.
+            return
+
+        answer = "".join(parts).strip()
+
+        if not answer:
+            print("\nSTREAM ERROR: LLM returned empty answer.")
+            return
+
+        # --------------------------------------------------------
+        # VALIDATE COMPLETE ANSWER
+        # --------------------------------------------------------
+        try:
+            validation_result = validate_answer(
+                query,
+                validation_context,
+                answer
+            )
+        except Exception as e:
+            print(f"\nValidation error: {e}")
+            return
+
+        if (
+            not isinstance(validation_result, tuple)
+            or len(validation_result) != 2
+        ):
+            print("\nVALIDATION ERROR: Invalid validator response.")
+            return
+
+        valid, validation_message = validation_result
+
+        if valid:
+            final_answer = answer
+            print("\nVALIDATION: PASSED")
+        else:
+            print("\nVALIDATION: FAILED")
+            print(validation_message)
+            final_answer = (
+                "I couldn't verify that answer from the available store information."
+            )
+
+        # --------------------------------------------------------
+        # MEMORY
+        # --------------------------------------------------------
+        self.conversation.add_message(
+            query,
+            final_answer
         )
 
 
@@ -302,35 +524,15 @@ Content:
         # CLASSIFY QUERY
         # ----------------------------------------------------
 
-        try:
+        query_type = classify_query(
 
-            query_type = classify_query(
+            query,
 
-                query,
-
-                has_previous_products=bool(
-                    self.conversation.last_products
-                )
-
+            has_previous_products=bool(
+                self.conversation.last_products
             )
 
-        except Exception as e:
-
-            print()
-
-            print(
-                "QUERY ROUTER ERROR:"
-            )
-
-            print(
-                str(e)
-            )
-
-
-            return (
-                "I'm sorry, I couldn't understand "
-                "your request right now. Please try again."
-            )
+        )
 
 
         print()
@@ -389,18 +591,6 @@ Content:
 
 
             # ------------------------------------------------
-            # EMPTY ANSWER
-            # ------------------------------------------------
-
-            if not answer:
-
-                return (
-                    "I'm sorry, I couldn't generate "
-                    "a response right now. Please try again."
-                )
-
-
-            # ------------------------------------------------
             # NORMAL CHAT DOES NOT NEED RAG VALIDATION
             # ------------------------------------------------
 
@@ -444,6 +634,12 @@ Content:
 
             history = (
                 self.conversation.history_text()
+            )
+
+            context = self.add_recommendation_context(
+                query,
+                self.conversation.last_products,
+                context
             )
 
 
@@ -490,6 +686,9 @@ Content:
                 )
 
 
+                # IMPORTANT:
+                # Do NOT continue to validation.
+
                 return (
                     "I'm sorry, I couldn't process that "
                     "follow-up question right now. "
@@ -498,7 +697,7 @@ Content:
 
 
             # ------------------------------------------------
-            # EMPTY ANSWER
+            # PROTECT AGAINST EMPTY ANSWER
             # ------------------------------------------------
 
             if not answer:
@@ -533,65 +732,79 @@ Content:
             )
 
 
-            # =================================================
-            # QUERY UNDERSTANDING
-            # =================================================
-
             try:
 
-                filters = understand_query(
+                # ------------------------------------------------
+                # UNDERSTAND USER QUERY
+                # ------------------------------------------------
+
+                query_info = understand_query(query)
+
+                print()
+                print("===== QUERY UNDERSTANDING =====")
+
+                print(
+                    f"Original query: {query}"
+                )
+
+                print(
+                    f"Corrected query: "
+                    f"{query_info.get('corrected_query', query)}"
+                )
+
+                print(
+                    f"Category: "
+                    f"{query_info.get('category')}"
+                )
+
+                print(
+                    f"Metal: "
+                    f"{query_info.get('metal')}"
+                )
+
+                print(
+                    f"Material type: "
+                    f"{query_info.get('material_type')}"
+                )
+
+                print(
+                    f"Karat: "
+                    f"{query_info.get('karat')}"
+                )
+
+                print(
+                    f"Min price: "
+                    f"{query_info.get('min_price')}"
+                )
+
+                print(
+                    f"Max price: "
+                    f"{query_info.get('max_price')}"
+                )
+
+                # ------------------------------------------------
+                # USE CORRECTED QUERY FOR SEMANTIC SEARCH
+                # ------------------------------------------------
+
+                search_query = query_info.get(
+                    "corrected_query",
                     query
                 )
 
-            except Exception as e:
+                if not search_query:
+                    search_query = query
 
-                print()
-
-                print(
-                    "QUERY UNDERSTANDING ERROR:"
-                )
-
-                print(
-                    str(e)
-                )
-
-
-                return (
-                    "I'm sorry, I couldn't understand "
-                    "your product requirements right now. "
-                    "Please try again."
-                )
-
-
-            # ------------------------------------------------
-            # DISPLAY UNDERSTANDING
-            # ------------------------------------------------
-
-            self.print_query_filters(
-                filters
-            )
-
-
-            # =================================================
-            # FILTERED + SEMANTIC SEARCH
-            # =================================================
-
-            try:
+                # ------------------------------------------------
+                # FILTER + SEMANTIC SEARCH
+                # ------------------------------------------------
 
                 results = filtered_semantic_search(
-
-                    query,
-
-                    self.products,
-
-                    self.product_embeddings,
-
-                    filters,
-
-                    TOP_K_PRODUCTS
-
+                    query=search_query,
+                    products=self.products,
+                    product_embeddings=self.product_embeddings,
+                    filters=query_info,
+                    top_k=TOP_K_PRODUCTS
                 )
-
 
             except Exception as e:
 
@@ -612,114 +825,21 @@ Content:
                 )
 
 
-            # =================================================
+            # ------------------------------------------------
             # NO RESULTS
-            # =================================================
+            # ------------------------------------------------
 
             if not results:
 
-                print()
-
-                print(
-                    "No matching products found."
-                )
-
-
-                # ------------------------------------------------
-                # SPECIAL MESSAGE FOR STRICT FILTERS
-                # ------------------------------------------------
-
-                material_type = filters.get(
-                    "material_type"
-                )
-
-                category = filters.get(
-                    "category"
-                )
-
-                metal = filters.get(
-                    "metal"
-                )
-
-                max_price = filters.get(
-                    "max_price"
-                )
-
-
-                if material_type:
-
-                    readable_material = (
-                        material_type.replace(
-                            "_",
-                            " "
-                        )
-                    )
-
-                    return (
-                        f"I couldn't find any "
-                        f"{readable_material} products "
-                        f"matching your requirements "
-                        f"in the current catalog."
-                    )
-
-
-                if (
-                    category
-                    and metal
-                    and max_price is not None
-                ):
-
-                    return (
-                        f"I couldn't find any "
-                        f"{metal} {category} products "
-                        f"under ₹{max_price:,} "
-                        f"in the current catalog."
-                    )
-
-
-                if (
-                    category
-                    and max_price is not None
-                ):
-
-                    return (
-                        f"I couldn't find any "
-                        f"{category} products under "
-                        f"₹{max_price:,} "
-                        f"in the current catalog."
-                    )
-
-
-                if (
-                    metal
-                    and max_price is not None
-                ):
-
-                    return (
-                        f"I couldn't find any "
-                        f"{metal} products under "
-                        f"₹{max_price:,} "
-                        f"in the current catalog."
-                    )
-
-
                 return (
                     "I couldn't find any products "
-                    "matching your requirements "
-                    "in the current catalog."
+                    "matching your requirements."
                 )
 
 
-            # =================================================
+            # ------------------------------------------------
             # DISPLAY RESULTS
-            # =================================================
-
-            print()
-
-            print(
-                "===== MATCHING PRODUCTS ====="
-            )
-
+            # ------------------------------------------------
 
             for rank, result in enumerate(
 
@@ -736,61 +856,18 @@ Content:
 
                     f"{rank}. "
 
-                    f"{product.get('name', '')} | "
+                    f"{product['name']} | "
 
-                    f"₹{product.get('price', 0):,} | "
+                    f"₹{product['price']:,} | "
 
-                    f"Score={result.get('score', 0):.3f}"
-
-                )
-
-
-            # =================================================
-            # SORT RESULTS IF REQUESTED
-            # =================================================
-
-            sort_by = filters.get(
-                "sort_by"
-            )
-
-            sort_order = filters.get(
-                "sort_order"
-            )
-
-
-            if sort_by == "price":
-
-                reverse = (
-                    sort_order == "desc"
-                )
-
-
-                results = sorted(
-
-                    results,
-
-                    key=lambda item: float(
-                        item["product"].get(
-                            "price",
-                            0
-                        )
-                    ),
-
-                    reverse=reverse
+                    f"Score={result['score']:.3f}"
 
                 )
 
 
-                print()
-
-                print(
-                    "Products sorted by price."
-                )
-
-
-            # =================================================
+            # ------------------------------------------------
             # CONTEXT
-            # =================================================
+            # ------------------------------------------------
 
             context = (
                 self.product_context(
@@ -798,10 +875,16 @@ Content:
                 )
             )
 
+            context = self.add_recommendation_context(
+                query,
+                results,
+                context
+            )
 
-            # =================================================
-            # GENERATE ANSWER
-            # =================================================
+
+            # ------------------------------------------------
+            # LLM
+            # ------------------------------------------------
 
             try:
 
@@ -849,9 +932,9 @@ Content:
             validation_context = context
 
 
-            # =================================================
+            # ------------------------------------------------
             # SAVE PRODUCTS
-            # =================================================
+            # ------------------------------------------------
 
             self.conversation.set_products(
                 results
@@ -948,9 +1031,9 @@ Content:
 
                     f"{rank}. "
 
-                    f"{document.get('document', '')} | "
+                    f"{document['document']} | "
 
-                    f"Score={result.get('score', 0):.3f}"
+                    f"Score={result['score']:.3f}"
 
                 )
 
@@ -967,7 +1050,7 @@ Content:
 
 
             # ------------------------------------------------
-            # GENERATE ANSWER
+            # LLM
             # ------------------------------------------------
 
             try:
@@ -1102,16 +1185,12 @@ Content:
         # ----------------------------------------------------
 
         if (
-
             validation_result is None
-
             or not isinstance(
                 validation_result,
                 tuple
             )
-
             or len(validation_result) != 2
-
         ):
 
             print()

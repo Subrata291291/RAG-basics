@@ -407,4 +407,139 @@ the store information.
         False,
         "Generated answer contains information "
         "that could not be verified from the retrieved context."
+    )# ============================================================
+# ANSWER VALIDATOR
+# ============================================================
+
+import re
+
+from src.answer_generator import generate_with_prompt
+from src.prompt_loader import load_prompts
+
+
+# ============================================================
+# LOAD PROMPTS
+# ============================================================
+
+PROMPTS = load_prompts()
+
+
+# ============================================================
+# VALIDATOR RESPONSE PARSER
+# ============================================================
+
+def _parse_validation_response(response):
+    """
+    Convert the validator LLM response into:
+
+        (True, reason)
+    or
+        (False, reason)
+
+    The validator is intentionally strict.
+    """
+
+    if not response:
+        return False, "Validator returned an empty response."
+
+    text = response.strip()
+
+    # --------------------------------------------------------
+    # VALID
+    # --------------------------------------------------------
+
+    if re.fullmatch(
+        r"VALID\s*",
+        text,
+        flags=re.IGNORECASE
+    ):
+        return True, "Answer is supported by the retrieved context."
+
+    # --------------------------------------------------------
+    # INVALID
+    # --------------------------------------------------------
+
+    invalid_match = re.match(
+        r"^INVALID\s*(?::|-)?\s*(.*)$",
+        text,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    if invalid_match:
+
+        reason = invalid_match.group(1).strip()
+
+        if not reason:
+            reason = "Answer contains unsupported information."
+
+        return False, reason
+
+    # --------------------------------------------------------
+    # FAIL CLOSED
+    # --------------------------------------------------------
+
+    return False, (
+        "Validator returned an unrecognized response."
+    )
+
+
+# ============================================================
+# VALIDATE ANSWER
+# ============================================================
+
+def validate_answer(
+    query,
+    context,
+    answer
+):
+    """
+    Validate a generated RAG answer against retrieved context.
+
+    IMPORTANT:
+    Validation fails closed. If the validator itself returns an
+    unexpected response or raises an exception, the answer is
+    considered unverified.
+    """
+
+    if not query or not answer:
+        return False, "Question or answer is empty."
+
+    if not context:
+        return False, "No retrieved context was supplied."
+
+    try:
+
+        validation_prompt = PROMPTS["validation"].format(
+            query=query,
+            context=context,
+            answer=answer
+        )
+
+    except KeyError:
+
+        return False, (
+            "Validation prompt is not configured."
+        )
+
+    except Exception as e:
+
+        return False, (
+            f"Could not build validation prompt: {e}"
+        )
+
+    try:
+
+        response = generate_with_prompt(
+            PROMPTS["system"],
+            validation_prompt
+        )
+
+    except Exception as e:
+
+        return False, (
+            f"Validator request failed: {e}"
+        )
+
+    return _parse_validation_response(
+        response
     )

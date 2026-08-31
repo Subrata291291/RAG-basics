@@ -28,76 +28,19 @@ PROMPTS = load_prompts()
 
 
 # ============================================================
-# LOW-LEVEL LLM CALL
+# NORMAL LLM CALL
 # ============================================================
 
 def call_llm(messages):
-    """
-    Send a request to OpenRouter.
-
-    Retry is handled centrally by retry_call().
-
-    This function also checks for an empty OpenRouter
-    response and provides useful diagnostic information.
-    """
 
     def request():
 
-        response = client.chat.completions.create(
+        return client.chat.completions.create(
             model=MODEL_NAME,
             messages=messages,
             temperature=0.2,
             timeout=30
         )
-
-        # ----------------------------------------------------
-        # CHECK FOR EMPTY RESPONSE
-        # ----------------------------------------------------
-
-        if not response.choices:
-
-            error_details = []
-
-            # OpenRouter may provide an error object
-            if hasattr(response, "error") and response.error:
-
-                error_details.append(
-                    f"error={response.error}"
-                )
-
-            # Include model information if available
-            if hasattr(response, "model") and response.model:
-
-                error_details.append(
-                    f"model={response.model}"
-                )
-
-            # Include response ID if available
-            if hasattr(response, "id") and response.id:
-
-                error_details.append(
-                    f"id={response.id}"
-                )
-
-            # If nothing useful was available
-            if not error_details:
-
-                error_details.append(
-                    f"response={response}"
-                )
-
-            details = " | ".join(error_details)
-
-            raise RuntimeError(
-                "OpenRouter returned no choices. "
-                f"Details: {details}"
-            )
-
-        return response
-
-    # --------------------------------------------------------
-    # RETRY
-    # --------------------------------------------------------
 
     return retry_call(
         request,
@@ -107,19 +50,86 @@ def call_llm(messages):
 
 
 # ============================================================
-# GENERIC ANSWER GENERATOR
+# STREAMING LLM CALL
+# ============================================================
+
+def stream_llm(messages):
+
+    """
+    Stream the response from OpenRouter.
+
+    Yields only valid text content.
+    Safely handles empty choices, empty deltas
+    and empty content.
+    """
+
+    def request():
+
+        return client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            temperature=0.2,
+            timeout=30,
+            stream=True
+        )
+
+    stream = retry_call(
+        request,
+        max_retries=3,
+        base_delay=1
+    )
+
+    if stream is None:
+        raise RuntimeError(
+            "OpenRouter returned no streaming response."
+        )
+
+    for chunk in stream:
+
+        if chunk is None:
+            continue
+
+        choices = getattr(
+            chunk,
+            "choices",
+            None
+        )
+
+        if not choices:
+            continue
+
+        choice = choices[0]
+
+        if choice is None:
+            continue
+
+        delta = getattr(
+            choice,
+            "delta",
+            None
+        )
+
+        if delta is None:
+            continue
+
+        content = getattr(
+            delta,
+            "content",
+            None
+        )
+
+        if content:
+            yield content
+
+
+# ============================================================
+# GENERIC NON-STREAMING GENERATOR
 # ============================================================
 
 def generate_with_prompt(
     system_prompt,
     user_prompt
 ):
-    """
-    Generic LLM generation function.
-
-    All LLM requests pass through call_llm(),
-    which provides retry and timeout handling.
-    """
 
     response = call_llm(
         [
@@ -134,33 +144,94 @@ def generate_with_prompt(
         ]
     )
 
-    # --------------------------------------------------------
-    # SAFELY EXTRACT RESPONSE
-    # --------------------------------------------------------
+    if response is None:
+        raise RuntimeError(
+            "OpenRouter returned no response."
+        )
 
-    if not response.choices:
+    choices = getattr(
+        response,
+        "choices",
+        None
+    )
 
+    if not choices:
         raise RuntimeError(
             "OpenRouter returned no choices."
         )
 
-    message = response.choices[0].message
+    choice = choices[0]
+
+    if choice is None:
+        raise RuntimeError(
+            "OpenRouter returned an empty choice."
+        )
+
+    message = getattr(
+        choice,
+        "message",
+        None
+    )
 
     if message is None:
-
         raise RuntimeError(
             "OpenRouter returned an empty message."
         )
 
-    answer = message.content
+    answer = getattr(
+        message,
+        "content",
+        None
+    )
 
     if not answer:
-
         raise RuntimeError(
             "OpenRouter returned empty content."
         )
 
     return answer.strip()
+
+
+# ============================================================
+# GENERIC STREAMING GENERATOR
+# ============================================================
+
+def generate_stream_with_prompt(
+    system_prompt,
+    user_prompt
+):
+
+    """
+    Generate a response progressively.
+
+    Yields text chunks as they arrive.
+    """
+
+    if not system_prompt:
+        raise RuntimeError(
+            "System prompt is empty."
+        )
+
+    if not user_prompt:
+        raise RuntimeError(
+            "User prompt is empty."
+        )
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        },
+        {
+            "role": "user",
+            "content": user_prompt
+        }
+    ]
+
+    for chunk in stream_llm(messages):
+
+        if chunk:
+            yield chunk
 
 
 # ============================================================
@@ -171,20 +242,149 @@ def generate_product_answer(
     query,
     context
 ):
-    """
-    Generate an answer about jewellery products.
 
-    The answer is based only on the retrieved product
-    context supplied by the RAG pipeline.
     """
+    Generate a product answer from an already-built
+    product context string.
+
+    The caller is responsible for:
+
+    - query understanding
+    - filtering
+    - semantic search
+    - building product context
+
+    This function only generates the answer.
+    """
+
+    if not query:
+        raise ValueError(
+            "Product query is empty."
+        )
+
+    if not context:
+        raise ValueError(
+            "Product context is empty."
+        )
 
     prompt = PROMPTS["product"].format(
         query=query,
         context=context
     )
 
-    return generate_with_prompt(
-        PROMPTS["system"],
+    response = call_llm(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You are a strictly grounded "
+                    "jewellery shopping assistant."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    if response is None:
+        raise RuntimeError(
+            "OpenRouter returned no product response."
+        )
+
+    choices = getattr(
+        response,
+        "choices",
+        None
+    )
+
+    if not choices:
+        raise RuntimeError(
+            "OpenRouter returned no product choices."
+        )
+
+    choice = choices[0]
+
+    if choice is None:
+        raise RuntimeError(
+            "OpenRouter returned an empty product choice."
+        )
+
+    message = getattr(
+        choice,
+        "message",
+        None
+    )
+
+    if message is None:
+        raise RuntimeError(
+            "OpenRouter returned an empty product message."
+        )
+
+    answer = getattr(
+        message,
+        "content",
+        None
+    )
+
+    if not answer:
+        raise RuntimeError(
+            "OpenRouter returned empty product content."
+        )
+
+    return answer.strip()
+
+
+# ============================================================
+# PRODUCT STREAM
+# ============================================================
+
+def stream_product_answer(
+    query,
+    context
+):
+
+    """
+    Stream a product answer using only the
+    retrieved product context.
+    """
+
+    if not query:
+        raise ValueError(
+            "Product query is empty."
+        )
+
+    if not context:
+        raise ValueError(
+            "Product context is empty."
+        )
+
+    product_prompt = PROMPTS.get(
+        "product"
+    )
+
+    if not product_prompt:
+        raise RuntimeError(
+            "Product prompt is missing."
+        )
+
+    system_prompt = PROMPTS.get(
+        "system"
+    )
+
+    if not system_prompt:
+        raise RuntimeError(
+            "System prompt is missing."
+        )
+
+    prompt = product_prompt.format(
+        query=query,
+        context=context
+    )
+
+    yield from generate_stream_with_prompt(
+        system_prompt,
         prompt
     )
 
@@ -197,15 +397,16 @@ def generate_knowledge_answer(
     query,
     context
 ):
-    """
-    Generate an answer using store knowledge documents.
 
-    Examples:
-        - Shipping policy
-        - Return policy
-        - Privacy policy
-        - Terms and conditions
-    """
+    if not query:
+        raise ValueError(
+            "Knowledge query is empty."
+        )
+
+    if not context:
+        raise ValueError(
+            "Knowledge context is empty."
+        )
 
     prompt = PROMPTS["knowledge"].format(
         query=query,
@@ -213,6 +414,36 @@ def generate_knowledge_answer(
     )
 
     return generate_with_prompt(
+        PROMPTS["system"],
+        prompt
+    )
+
+
+# ============================================================
+# KNOWLEDGE STREAM
+# ============================================================
+
+def stream_knowledge_answer(
+    query,
+    context
+):
+
+    if not query:
+        raise ValueError(
+            "Knowledge query is empty."
+        )
+
+    if not context:
+        raise ValueError(
+            "Knowledge context is empty."
+        )
+
+    prompt = PROMPTS["knowledge"].format(
+        query=query,
+        context=context
+    )
+
+    yield from generate_stream_with_prompt(
         PROMPTS["system"],
         prompt
     )
@@ -227,14 +458,11 @@ def generate_followup_answer(
     context,
     history
 ):
-    """
-    Generate an answer to a follow-up question.
 
-    Uses:
-        - Current retrieved product context
-        - Conversation history
-        - Current user question
-    """
+    if not query:
+        raise ValueError(
+            "Follow-up query is empty."
+        )
 
     prompt = PROMPTS["followup"].format(
         query=query,
@@ -249,6 +477,33 @@ def generate_followup_answer(
 
 
 # ============================================================
+# FOLLOW-UP STREAM
+# ============================================================
+
+def stream_followup_answer(
+    query,
+    context,
+    history
+):
+
+    if not query:
+        raise ValueError(
+            "Follow-up query is empty."
+        )
+
+    prompt = PROMPTS["followup"].format(
+        query=query,
+        context=context,
+        history=history
+    )
+
+    yield from generate_stream_with_prompt(
+        PROMPTS["system"],
+        prompt
+    )
+
+
+# ============================================================
 # NORMAL CONVERSATION ANSWER
 # ============================================================
 
@@ -256,19 +511,11 @@ def generate_normal_answer(
     query,
     history
 ):
-    """
-    Generate a response for normal conversation.
 
-    Examples:
-
-        Hello
-        Hi
-        Thanks
-        What can you do?
-
-    Normal conversation should NOT require product
-    retrieval or knowledge-document retrieval.
-    """
+    if not query:
+        raise ValueError(
+            "Normal query is empty."
+        )
 
     prompt = PROMPTS["normal"].format(
         query=query,
@@ -276,6 +523,31 @@ def generate_normal_answer(
     )
 
     return generate_with_prompt(
+        PROMPTS["system"],
+        prompt
+    )
+
+
+# ============================================================
+# NORMAL CONVERSATION STREAM
+# ============================================================
+
+def stream_normal_answer(
+    query,
+    history
+):
+
+    if not query:
+        raise ValueError(
+            "Normal query is empty."
+        )
+
+    prompt = PROMPTS["normal"].format(
+        query=query,
+        history=history
+    )
+
+    yield from generate_stream_with_prompt(
         PROMPTS["system"],
         prompt
     )

@@ -11,21 +11,17 @@ def main():
 
     print()
     print("=" * 60)
-    print(
-        "       JEWELLERY RAG CHATBOT"
-    )
+    print("       JEWELLERY RAG CHATBOT")
     print("=" * 60)
 
     print()
     print(
-        "Products + Knowledge + "
-        "Semantic Search + Conversation + Validation"
+        "Products + Knowledge + Semantic Search + "
+        "Conversation + Validation + Streaming"
     )
 
     print()
-    print(
-        "Type 'exit' to quit."
-    )
+    print("Type 'exit' to quit.")
 
     while True:
 
@@ -35,36 +31,42 @@ def main():
 
         if query.lower() == "exit":
 
-            print(
-                "\nGoodbye!"
-            )
+            print("\nGoodbye!")
 
             break
 
         if not query:
-
             continue
+
+        print()
+        print("===== FINAL ANSWER =====")
 
         try:
 
-            answer = chatbot.ask(
-                query
-            )
+            # =================================================
+            # STREAMING RESPONSE
+            # =================================================
+
+            for chunk in chatbot.ask_stream(query):
+
+                print(
+                    chunk,
+                    end="",
+                    flush=True
+                )
 
             print()
-            print(
-                "===== FINAL ANSWER ====="
-            )
 
-            print(answer)
+        except KeyboardInterrupt:
+
+            print(
+                "\n\nResponse interrupted."
+            )
 
         except Exception as e:
 
             print()
-            print(
-                "ERROR:"
-            )
-
+            print("ERROR:")
             print(str(e))
 
 
@@ -73,5 +75,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
     main()
