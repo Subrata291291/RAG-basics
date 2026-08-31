@@ -1,0 +1,74 @@
+Why do we need this in RAG?
+
+This is extremely important.
+
+Imagine your database contains:
+
+Document 1:
+The iPhone 15 has a 48MP main camera.
+
+Document 2:
+The iPhone 15 uses the A16 Bionic processor.
+
+Document 3:
+Customers can return the phone within 7 days.
+
+User asks:
+
+"What camera does the iPhone 15 have?"
+
+The computer can't directly understand that these sentences have similar meaning.
+
+So we convert everything into vectors:
+
+Document 1 ──→ Vector 1
+Document 2 ──→ Vector 2
+Document 3 ──→ Vector 3
+
+User Query ──→ Query Vector
+
+Then we compare:
+
+Query Vector
+     ↓
+Compare with
+     ↓
+Vector 1   ← high similarity ✅
+Vector 2   ← low similarity
+Vector 3   ← low similarity
+
+Therefore RAG retrieves Document 1.
+
+That's the foundation of vector search.
+
+
+
+
+                    USER
+                      │
+                      ▼
+              Ask a question
+                      │
+                      ▼
+              Query Embedding
+                      │
+                      ▼
+             Cosine Similarity
+                      │
+                      ▼
+                 TOP 2
+                      │
+                      ▼
+          ┌────────────────────┐
+          │ Retrieved Documents│
+          └────────────────────┘
+                      │
+                      ▼
+                 RAG Prompt
+                      │
+                      ▼
+              OpenRouter Free
+                   Model
+                      │
+                      ▼
+               FINAL ANSWER

@@ -1,0 +1,142 @@
+[
+    {
+        "id": "R001",
+        "name": "Classic 22K Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 18000,
+        "description": "A classic 22K gold ring suitable for everyday wear."
+    },
+    {
+        "id": "R002",
+        "name": "Elegant 22K Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 25000,
+        "description": "An elegant 22K gold ring with a beautiful traditional design, suitable for weddings and special occasions."
+    },
+    {
+        "id": "R003",
+        "name": "Traditional 22K Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 27000,
+        "description": "A traditional 22K gold ring with an elegant traditional design."
+    },
+    {
+        "id": "R004",
+        "name": "Bridal 22K Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 29000,
+        "description": "A bridal 22K gold ring designed for weddings and bridal occasions."
+    },
+    {
+        "id": "R005",
+        "name": "Modern 22K Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 24000,
+        "description": "A modern 22K gold ring with a minimal contemporary design suitable for parties and special occasions."
+    },
+    {
+        "id": "R006",
+        "name": "Diamond Gold Ring",
+        "category": "ring",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "18K",
+        "price": 19500,
+        "description": "An 18K gold diamond ring with a modern design, ideal for special occasions and weddings."
+    },
+    {
+        "id": "N001",
+        "name": "22K Gold Necklace",
+        "category": "necklace",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 35000,
+        "description": "A beautiful 22K gold necklace suitable for festive occasions."
+    },
+    {
+        "id": "B001",
+        "name": "22K Gold Bracelet",
+        "category": "bracelet",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 22000,
+        "description": "A 22K gold bracelet with a traditional design suitable for festive occasions."
+    },
+    {
+        "id": "E001",
+        "name": "Gold Earrings",
+        "category": "earrings",
+        "metal": "gold",
+        "material_type": "solid_gold",
+        "karat": "22K",
+        "price": 15000,
+        "description": "22K gold earrings with an elegant design suitable for weddings and festive occasions."
+    },
+    {
+        "id": "S001",
+        "name": "Silver Ring",
+        "category": "ring",
+        "metal": "silver",
+        "material_type": "silver",
+        "karat": "0K",
+        "price": 8000,
+        "description": "A simple silver ring suitable for everyday wear."
+    },
+    {
+        "id": "GP001",
+        "name": "Gold Plated Ring",
+        "category": "ring",
+        "metal": "brass",
+        "material_type": "gold_plated",
+        "karat": "N/A",
+        "price": 5000,
+        "description": "A stylish gold plated ring suitable for everyday wear."
+    },
+    {
+        "id": "GP002",
+        "name": "Gold Plated Necklace",
+        "category": "necklace",
+        "metal": "brass",
+        "material_type": "gold_plated",
+        "karat": "N/A",
+        "price": 12000,
+        "description": "A beautiful gold plated necklace suitable for parties and special occasions."
+    },
+    {
+        "id": "GP003",
+        "name": "Gold Plated Earrings",
+        "category": "earrings",
+        "metal": "brass",
+        "material_type": "gold_plated",
+        "karat": "N/A",
+        "price": 3500,
+        "description": "Elegant gold plated earrings suitable for everyday and festive occasions."
+    },
+    {
+        "id": "GP004",
+        "name": "Gold Plated Bracelet",
+        "category": "bracelet",
+        "metal": "brass",
+        "material_type": "gold_plated",
+        "karat": "N/A",
+        "price": 7500,
+        "description": "A stylish gold plated bracelet suitable for parties and special occasions."
+    }
+]

@@ -1,0 +1,31 @@
+                    JEWELLERY CHATBOT
+                           │
+                           ▼
+                     main.py
+                           │
+                           ▼
+                     chatbot.py
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+          ▼                ▼                ▼
+     Product Search   Knowledge Search   Conversation
+          │                │                │
+          ▼                ▼                ▼
+ products.json       knowledge/*.txt    conversation.py
+          │                │
+          └────────┬───────┘
+                   ▼
+              Answer Generator
+                   │
+                   ▼
+             Prompt Templates
+                   │
+                   ▼
+               LLM / RAG
+                   │
+                   ▼
+              Answer Validator
+                   │
+                   ▼
+              FINAL ANSWER
