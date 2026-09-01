@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.chatbot import JewelleryChatbot
+from src.live_store import fetch_live_store
 
 
 # ============================================================
@@ -540,6 +541,14 @@ def build_product_payload(
                 "thumbnail",
                 "thumbnail_url",
                 "images",
+                "stock_status",
+                "is_in_stock",
+                "stock_quantity",
+                "on_sale",
+                "rating",
+                "review_count",
+                "attributes",
+                "tags",
             ]
 
             for field in fields:
@@ -801,6 +810,39 @@ def chat_stream(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# ============================================================
+# LIVE STORE SYNC
+# ============================================================
+
+@app.post("/admin/sync-live-store")
+def sync_live_store():
+    """Refresh/check the live Zyraluxe catalogue.
+
+    Existing local sessions are cleared so the next session reloads
+    the current live product and policy data.
+    """
+    try:
+        products, knowledge = fetch_live_store()
+        sessions.clear()
+
+        return {
+            "status": "ok",
+            "products": len(products),
+            "knowledge_documents": len(knowledge),
+        }
+
+    except Exception as exc:
+        print(
+            f"LIVE STORE SYNC ERROR: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to refresh live Zyraluxe store data."
+        ) from exc
 
 
 # ============================================================

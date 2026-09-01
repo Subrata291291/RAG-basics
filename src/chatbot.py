@@ -1,7 +1,4 @@
-from src.data_loader import (
-    load_products,
-    load_knowledge_documents
-)
+from src.live_store import fetch_live_store
 
 from src.product_search import (
     build_product_embeddings,
@@ -66,14 +63,13 @@ class JewelleryChatbot:
         )
 
         # ----------------------------------------------------
-        # LOAD DATA
+        # LOAD LIVE ZYRALUXE DATA
         # ----------------------------------------------------
 
-        self.products = load_products()
-
-        self.knowledge = (
-            load_knowledge_documents()
-        )
+        # Do NOT use the old dummy products.json dataset.
+        # Products and customer-facing store knowledge come from
+        # the live Zyraluxe WordPress/WooCommerce site.
+        self.products, self.knowledge = fetch_live_store()
 
         print(
             f"Loaded {len(self.products)} products."
@@ -169,6 +165,10 @@ Category: {product['category']}
 Metal: {product['metal']}
 Karat: {product['karat']}
 Price: ₹{product['price']}
+Stock: {product.get('stock_status', 'not specified')}
+SKU: {product.get('sku', '')}
+Product URL: {product.get('url', '')}
+Image URL: {product.get('image_url', '')}
 Description: {product['description']}
 Semantic Score: {result['score']:.3f}
 """
@@ -198,7 +198,8 @@ Semantic Score: {result['score']:.3f}
             lines.append(
                 f"""
 Document {rank}:
-File: {document['document']}
+Document: {document['document']}
+URL: {document.get('url', '')}
 Score: {result['score']:.3f}
 
 Content:

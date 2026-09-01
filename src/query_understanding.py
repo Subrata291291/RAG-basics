@@ -1142,32 +1142,30 @@ def understand_query(
     # --------------------------------------------------------
 
     try:
-
         raw_response = (
             _request_query_understanding(
                 corrected_query
             )
         )
 
+        print()
+        print("===== RAW QUERY UNDERSTANDING RESPONSE =====")
+        print(repr(raw_response))
 
         # ----------------------------------------------------
         # STEP 4: SAFE JSON EXTRACTION
         # ----------------------------------------------------
-
         parsed = extract_json_object(
             raw_response
         )
-
 
         if isinstance(
             parsed,
             dict
         ):
-
             filters.update(
                 parsed
             )
-
 
     except Exception as error:
 
@@ -1209,5 +1207,8 @@ def understand_query(
 
     )
 
+    print()
+    print("===== FINAL FILTERS =====")
+    print(filters)
 
     return filters
